@@ -1,4 +1,4 @@
-package geoholder
+package proximityhash
 
 import (
 	"fmt"
