@@ -1,16 +1,57 @@
-# proximityhash
-generates a set of geohashes that cover a circular area, given the center coordinates and the radius
+# go version of proximity hash
 
-a go version of proximityhash inspired by [python proximityhash](https://github.com/ashwin711/proximityhash)
+ProximityHash(go): Geohashes in Proximity (with the option of compression util)
+this package is a port of [ashwin711/proximityhash](https://github.com/ashwin711/proximityhash)
 
-addition a re-impliment Compression(GeoRaptor), it creates the best combination
-of geohashes across various levels to represent a polygon, by starting from the
-highest level and iterating till the optimal blend is brewed. Result accuracy
-remains the same as that of the starting geohash level, but data size reduces
-considerably for large polygons, thereby improving speed and performance.
 
-Following is a sample of what georaptor does
+Geohash is a geocoding system invented by Gustavo Niemeyer and placed into the public domain. It is a hierarchical spatial data structure which subdivides space into buckets of grid shape, which is one of the many applications of what is known as a Z-order curve, and generally space-filling curves.
 
-![input](https://raw.github.com/ashwin711/georaptor/master/images/sgp_input.png)
+**ProximityHash** generates a set of geohashes that cover a circular area, given the center coordinates and the radius. It also has an additional option to use **GeoRaptor** that creates the best combination of geohashes across various levels to represent the circle, starting from the highest level and iterating till the optimal blend is brewed. Result accuracy remains the same as that of the starting geohash level, but data size reduces considerably, thereby improving
+speed and performance.
 
-![output](https://raw.github.com/ashwin711/georaptor/master/images/sgp_output.png)
+
+Example
+-------
+
+$ proximityhash 48.858156 2.294776 1000 7
+
+![proximityhash](./statics/proximityhash.png)
+
+$ proximityhash 48.858156 2.294776 2000 7 --georaptor true
+![proximityhash_georaptor](./statics/proximityhash_georaptor.png)
+
+$ proximityhash 48.858156 2.294776 2000 7 --georaptor true --minlevel 3 --maxlevel 6
+
+![proximityhash_georaptor_limited](statics/proximityhash_georaptor_limited.png)
+
+
+Installation
+------------
+
+To install proximityhash, simply
+
+`go get github.com/echoface/proximityhash`
+
+API:
+
+```go
+package proximityhash
+
+// CompressGeoHash compress api, merge geohash codes as most as possible
+func CompressGeoHash(codes []string, minPrecision, cutoffPrecision int) []string
+
+// CreateGeohash generate geohash codes that cover a circular area
+func CreateGeohash(latitude, longitude, radius float64, precision uint) []string
+
+```
+
+License:
+--------
+
+Licensed under the MIT License
+
+
+Contributors:
+-------------
+
+- gonghuan.dev@gmail.com [https://github.com/echoface]

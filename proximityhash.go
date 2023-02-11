@@ -7,22 +7,15 @@ import (
 	"github.com/mmcloughlin/geohash"
 )
 
-func InCircleCheck(latitude, longitude, centreLat, centreLon, radius float64) bool {
+func inCircleCheck(latitude, longitude, centreLat, centreLon, radius float64) bool {
 	xDiff := longitude - centreLon
 	yDiff := latitude - centreLat
 
-	if math.Pow(xDiff, 2)+math.Pow(yDiff, 2) <= math.Pow(radius, 2) {
-		return true
-	}
-
-	return false
+	return math.Pow(xDiff, 2)+math.Pow(yDiff, 2) <= math.Pow(radius, 2)
 }
 
-func getCentroid(latitude, longitude, height, width float64) (float64, float64) {
-	yCen := latitude + (height / 2)
-	xCen := longitude + (width / 2)
-
-	return xCen, yCen
+func getCentroID(latitude, longitude, height, width float64) (float64, float64) {
+	return longitude + (width / 2), latitude + (height / 2)
 }
 
 func convertToLatLon(y float64, x float64, latitude float64, longitude float64) (float64, float64) {
@@ -43,8 +36,9 @@ func convertToLatLon(y float64, x float64, latitude float64, longitude float64) 
 
 	return finalLat, finalLon
 }
+
 var (
-	gridWidth = [12]float64{5009400.0, 1252300.0, 156500.0, 39100.0, 4900.0, 1200.0, 152.9, 38.2, 4.8, 1.2, 0.149, 0.0370}
+	gridWidth  = [12]float64{5009400.0, 1252300.0, 156500.0, 39100.0, 4900.0, 1200.0, 152.9, 38.2, 4.8, 1.2, 0.149, 0.0370}
 	gridHeight = [12]float64{4992600.0, 624100.0, 156000.0, 19500.0, 4900.0, 609.4, 152.4, 19.0, 4.8, 0.595, 0.149, 0.0199}
 )
 
@@ -68,9 +62,9 @@ func CreateGeohash(latitude, longitude, radius float64, precision uint) []string
 		for j := 0; j < lonMoves; j++ {
 
 			tempLon := width * float64(j)
-			if InCircleCheck(tempLat, tempLon, 0, 0, radius) {
+			if inCircleCheck(tempLat, tempLon, 0, 0, radius) {
 				var lat, lon float64
-				xCen, yCen := getCentroid(tempLat, tempLon, height, width)
+				xCen, yCen := getCentroID(tempLat, tempLon, height, width)
 
 				lat, lon = convertToLatLon(yCen, xCen, latitude, longitude)
 				geohashes = append(geohashes, geohash.EncodeWithPrecision(lat, lon, precision))
@@ -110,75 +104,88 @@ func GenNextPrecisionGeoHashCode(hashCode string) (results []string) {
 	return
 }
 
-// CompressGeoHash 要求输入的level都是一样的？
-func CompressGeoHash(codes []string, min int) []string {
-	if len(codes) == 0 || min <= 0 {
+// CompressGeoHash merge geohash code as far as possible,
+// minPrecision: minimum length of geohash code after merge
+// cutoffPrecision: cutoff precision geohash codes that can't be merged
+func CompressGeoHash(codes []string, minPrecision, cutoffPrecision int) []string {
+	PanicIf(minPrecision < 1 || minPrecision > 12, "need 0 < minPrecision <= 12")
+	PanicIf(cutoffPrecision < 1 || cutoffPrecision > 12, "need 0 < cutoffPrecision <= 12")
+
+	if len(codes) == 0 {
 		return codes
 	}
 
-	codesMap := map[string]struct{}{}
 	codeLevelMax := 0
+	codesMap := map[string]struct{}{} // map<code, finalResult>
 	for _, code := range codes {
 		codesMap[code] = struct{}{}
 		codeLevelMax = MaxInt(len(code), codeLevelMax)
 	}
 
-	if codeLevelMax <= min {
+	if codeLevelMax <= minPrecision {
 		return codes
 	}
+	cutoffPrecision = MinInt(codeLevelMax, cutoffPrecision)
 
-	results := make([]string, 0, len(codes)/2)
-	// 逐一尝试从maxLevel 向 maxLevel - 1
-	// i: 合并后的目标长度
-	// 将 codeLevelMax长度的code合并成长度为i的方块
-	type prefixData struct {
-		prefixCnt       int
-		samePrefixCodes []string
-	}
+	resultMap := map[string]struct{}{}
 
-	for i := codeLevelMax - 1; i >= min && len(codesMap) >= 32; i-- {
+	// try compress from maxLevel to maxLevel-1 level util minPrecision reached
+	for targetPrecision := codeLevelMax - 1; targetPrecision >= minPrecision && len(codesMap) >= 32; targetPrecision-- {
 
-		mergeLevel := i + 1
-		cntMap := map[string]*prefixData{}
+		candidatePrecision := targetPrecision + 1
+		targetPrecisionData := map[string][]string{}
 
 		for code := range codesMap {
-			if len(code) == mergeLevel {
-				shorterCode := code[:i]
-				data, ok := cntMap[shorterCode]
-				if !ok {
-					data = &prefixData{}
-					cntMap[shorterCode] = data
-				}
-				data.prefixCnt++
-				data.samePrefixCodes = append(data.samePrefixCodes, code)
-
-			} else if len(code) > mergeLevel { // 复用逻辑,大于目标合并长度的直接添加到结果集中，并从map中删除
+			if codeLen := len(code); codeLen == candidatePrecision {
+				shorterCode := code[:targetPrecision]
+				targetPrecisionData[shorterCode] = append(targetPrecisionData[shorterCode], code)
+			} else if codeLen > candidatePrecision {
 				delete(codesMap, code)
-				results = append(results, code)
+				if codeLen > cutoffPrecision {
+					code = code[:cutoffPrecision]
+				}
+				resultMap[code] = struct{}{}
 			}
 		}
-		// 如果shorterCode的数量有32个说明可以合并成更大的方块
-		// 不足32个则说明这些方块无法做任何合并,直接加入结果集
-		for shortCode, data := range cntMap {
-			var merged bool
-			for _, code := range data.samePrefixCodes {
+
+		// if shortCode has a 32 subset geohash code,
+		// it's meaning can merge into a bigger one
+		for targetPrecisionCode, subSetCodes := range targetPrecisionData {
+			canMerge := len(subSetCodes) >= 32
+			if canMerge {
+				codesMap[targetPrecisionCode] = struct{}{}
+			}
+
+			for _, code := range subSetCodes {
 				delete(codesMap, code)
 
-				if data.prefixCnt >= 32 && !merged { // 合并方块
-					merged = true
-					codesMap[shortCode] = struct{}{}
-				} else if data.prefixCnt < 32 { // 不能合并成大方块，则直接加入结果集
-					results = append(results, code)
-				} else {
-					// >= 32 && merged, do nothing
+				if !canMerge {
+					if len(code) > cutoffPrecision {
+						code = code[:cutoffPrecision]
+					}
+					resultMap[code] = struct{}{}
 				}
 			}
 		}
 	}
 	for code := range codesMap {
+		if len(code) > cutoffPrecision {
+			code = code[:cutoffPrecision]
+		}
+		resultMap[code] = struct{}{}
+	}
+	results := make([]string, 0, len(codes)/2)
+	for code := range resultMap {
 		results = append(results, code)
 	}
 	return results
+}
+
+func MinInt(a, b int) int {
+	if a < b {
+		return a
+	}
+	return b
 }
 
 func MaxInt(a, b int) int {
@@ -186,4 +193,11 @@ func MaxInt(a, b int) int {
 		return a
 	}
 	return b
+}
+
+func PanicIf(ok bool, ss string, v ...interface{}) {
+	if !ok {
+		return
+	}
+	panic(fmt.Errorf(ss, v...))
 }

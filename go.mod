@@ -1,6 +1,6 @@
 module github.com/echoface/proximityhash
 
-go 1.19
+go 1.16
 
 require (
 	github.com/mmcloughlin/geohash v0.10.0
